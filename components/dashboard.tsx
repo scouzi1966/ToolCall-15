@@ -501,7 +501,7 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
           <h1>ToolCall-15 LLM Tool Use Benchmark</h1>
           {configError ? <p className="config-error">{configError}</p> : null}
         </div>
-        <div className="hero-actions">
+        <div className="hero-actions" suppressHydrationWarning>
           <label className="concurrency-control">
             <span>Parallel</span>
             <select
