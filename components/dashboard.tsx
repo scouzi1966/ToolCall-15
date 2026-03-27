@@ -366,9 +366,7 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
       params.set("scenarios", targetScenarioId);
     }
 
-    if (afmConcurrency > 1) {
-      params.set("concurrency", String(afmConcurrency));
-    }
+    params.set("concurrency", String(afmConcurrency));
 
     if (batch) {
       params.set("batch", "true");
