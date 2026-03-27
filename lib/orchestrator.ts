@@ -5,7 +5,7 @@ import {
   SCENARIOS,
   scoreModelResults
 } from "@/lib/benchmark";
-import { callModel, createInitialMessages, type ModelMessage, type ProviderToolCall } from "@/lib/llm-client";
+import { callModel, callModelBatch, createInitialMessages, type ModelMessage, type ProviderToolCall } from "@/lib/llm-client";
 import type { ModelConfig } from "@/lib/models";
 
 export type RunEvent =
@@ -337,6 +337,87 @@ export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedS
       type: "run_finished",
       scores
     });
+  } catch (error) {
+    await emit({
+      type: "run_error",
+      message: error instanceof Error ? error.message : "Unknown benchmark error."
+    });
+  }
+}
+
+/**
+ * Batch benchmark: sends all scenario first-turns in a single POST /v1/batch/completions
+ * request, testing interleaved multi-sequence generation on one connection.
+ * Multi-turn follow-ups still use individual requests.
+ */
+export async function runBatchBenchmark(models: ModelConfig[], emit: Emit, requestedScenarioIds?: string[]): Promise<void> {
+  const scenarios = resolveScenarios(requestedScenarioIds);
+  const resultsByModel: Record<string, ModelScenarioResult[]> = Object.fromEntries(
+    models.map((model) => [model.id, [] as ModelScenarioResult[]])
+  );
+
+  await emit({
+    type: "run_started",
+    models: models.map((model) => ({ id: model.id, label: model.label })),
+    totalScenarios: scenarios.length
+  });
+
+  try {
+    for (const model of models) {
+      // Send all first-turn requests in one batch
+      const batchRequests = scenarios.map((scenario) => ({
+        customId: scenario.id,
+        messages: createInitialMessages(scenario.userMessage)
+      }));
+
+      await emit({
+        type: "scenario_started",
+        scenarioId: "batch",
+        title: `Batch: ${scenarios.length} scenarios via /v1/batch/completions`,
+        index: 1,
+        total: scenarios.length
+      });
+
+      const batchResponses = await callModelBatch(model, batchRequests);
+
+      // Process each response through the scenario handler (multi-turn if needed)
+      for (const [i, scenario] of scenarios.entries()) {
+        const batchResp = batchResponses[i];
+
+        await emit({
+          type: "scenario_started",
+          scenarioId: scenario.id,
+          title: scenario.title,
+          index: i + 1,
+          total: scenarios.length
+        });
+
+        if (batchResp.error) {
+          const result: ModelScenarioResult = {
+            scenarioId: scenario.id,
+            status: "fail",
+            points: 0,
+            summary: batchResp.error,
+            rawLog: `batch_error=${batchResp.error}`
+          };
+          resultsByModel[model.id].push(result);
+          await emit({ type: "scenario_result", modelId: model.id, scenarioId: scenario.id, result });
+          await emit({ type: "scenario_finished", scenarioId: scenario.id });
+          continue;
+        }
+
+        // Run the scenario through the normal multi-turn flow starting from the batch response
+        const result = await runScenarioForModel(model, scenario, emit);
+        resultsByModel[model.id].push(result);
+        await emit({ type: "scenario_result", modelId: model.id, scenarioId: scenario.id, result });
+        await emit({ type: "scenario_finished", scenarioId: scenario.id });
+      }
+    }
+
+    const scores = Object.fromEntries(
+      Object.entries(resultsByModel).map(([modelId, results]) => [modelId, scoreModelResults(results)])
+    );
+    await emit({ type: "run_finished", scores });
   } catch (error) {
     await emit({
       type: "run_error",

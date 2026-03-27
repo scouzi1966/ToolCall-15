@@ -150,3 +150,106 @@ export function createInitialMessages(userMessage: string): ModelMessage[] {
     { role: "user", content: userMessage }
   ];
 }
+
+export type BatchRequest = {
+  customId: string;
+  messages: ModelMessage[];
+};
+
+export type BatchResponse = {
+  customId: string;
+  response: AssistantResponse;
+  error?: string;
+};
+
+export async function callModelBatch(
+  model: ModelConfig,
+  requests: BatchRequest[]
+): Promise<BatchResponse[]> {
+  const baseUrl = normalizeBaseUrl(model.baseUrl);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+
+  if (model.apiKey) {
+    headers.Authorization = `Bearer ${model.apiKey}`;
+  }
+
+  const batchBody = {
+    requests: requests.map((req) => ({
+      custom_id: req.customId,
+      body: {
+        model: model.model,
+        temperature: 0,
+        parallel_tool_calls: true,
+        tool_choice: "auto",
+        messages: req.messages,
+        tools: UNIVERSAL_TOOLS
+      }
+    }))
+  };
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}/batch/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(batchBody),
+      signal: AbortSignal.timeout(MODEL_REQUEST_TIMEOUT_MS)
+    });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(`Batch request timed out after ${MODEL_REQUEST_TIMEOUT_MS / 1000}s.`);
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Batch request failed with ${response.status}: ${text}`);
+  }
+
+  // Parse SSE stream
+  const text = await response.text();
+  const results = new Map<string, BatchResponse>();
+
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+    try {
+      const event = JSON.parse(line.slice(6));
+      const customId = event.custom_id as string;
+      if (!customId) continue;
+
+      if (event.error) {
+        results.set(customId, {
+          customId,
+          response: { content: "", toolCalls: [] },
+          error: event.error.message ?? "Batch item error"
+        });
+        continue;
+      }
+
+      const message = event.response?.body?.choices?.[0]?.message ?? event.choices?.[0]?.message;
+      if (message) {
+        results.set(customId, {
+          customId,
+          response: {
+            content: normalizeContent(message.content),
+            toolCalls: normalizeToolCalls(message)
+          }
+        });
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  return requests.map((req) =>
+    results.get(req.customId) ?? {
+      customId: req.customId,
+      response: { content: "", toolCalls: [] },
+      error: "No response received"
+    }
+  );
+}

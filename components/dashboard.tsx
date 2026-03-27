@@ -348,7 +348,7 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
     }
   }
 
-  function startRun(targetScenarioId?: string) {
+  function startRunWithSource(targetScenarioId?: string, batch?: boolean) {
     eventSourceRef.current?.close();
     if (targetScenarioId) {
       resetScenarioState(targetScenarioId);
@@ -368,6 +368,10 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
 
     if (afmConcurrency > 1) {
       params.set("concurrency", String(afmConcurrency));
+    }
+
+    if (batch) {
+      params.set("batch", "true");
     }
 
     const source = new EventSource(`/api/run?${params.toString()}`);
@@ -444,7 +448,7 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
                         type="button"
                         onClick={(event) => {
                           if (event.shiftKey) {
-                            startRun(scenario.id);
+                            startRunWithSource(scenario.id);
                             return;
                           }
 
@@ -513,10 +517,18 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
           <button
             className="primary-button"
             type="button"
-            onClick={() => startRun()}
+            onClick={() => startRunWithSource()}
             disabled={allModels.length === 0 || runnerStatus === "running"}
           >
             {runnerStatus === "running" ? "Benchmark Running" : "Run Benchmark"}
+          </button>
+          <button
+            className="ghost-button batch-button"
+            type="button"
+            onClick={() => startRunWithSource(undefined, true)}
+            disabled={allModels.length === 0 || runnerStatus === "running"}
+          >
+            Batch Test
           </button>
         </div>
       </section>

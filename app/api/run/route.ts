@@ -1,6 +1,6 @@
 import { SCENARIOS } from "@/lib/benchmark";
 import { getModelConfigs } from "@/lib/models";
-import { runBenchmark, type RunEvent } from "@/lib/orchestrator";
+import { runBenchmark, runBatchBenchmark, type RunEvent } from "@/lib/orchestrator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   const requestedIds = searchParams.get("models")?.split(",").filter(Boolean) ?? [];
   const requestedScenarioIds = searchParams.get("scenarios")?.split(",").filter(Boolean) ?? [];
   const afmConcurrency = parseInt(searchParams.get("concurrency") ?? "", 10) || undefined;
+  const batchMode = searchParams.get("batch") === "true";
   let models = [] as ReturnType<typeof getModelConfigs>;
   let configError: string | null = null;
 
@@ -49,7 +50,11 @@ export async function GET(request: Request) {
       }
 
       try {
-        await runBenchmark(models, emit, requestedScenarioIds, afmConcurrency);
+        if (batchMode) {
+          await runBatchBenchmark(models, emit, requestedScenarioIds);
+        } else {
+          await runBenchmark(models, emit, requestedScenarioIds, afmConcurrency);
+        }
       } catch (error) {
         await emit({
           type: "run_error",
