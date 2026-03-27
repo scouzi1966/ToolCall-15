@@ -114,9 +114,26 @@ code {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 14px;
   flex-shrink: 0;
+}
+
+.concurrency-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.concurrency-control select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 0.85rem;
+  color: var(--text);
 }
 
 .primary-button,

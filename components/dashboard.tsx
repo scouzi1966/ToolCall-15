@@ -171,6 +171,7 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
   const [dialogOpen, setDialogOpen] = useState(false);
   const [logs, setLogs] = useState<Array<{ id: string; message: string }>>([]);
   const [failureDetails, setFailureDetails] = useState<FailureDetails | null>(null);
+  const [afmConcurrency, setAfmConcurrency] = useState(1);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const displayPrimaryModels = useMemo(
@@ -365,6 +366,10 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
       params.set("scenarios", targetScenarioId);
     }
 
+    if (afmConcurrency > 1) {
+      params.set("concurrency", String(afmConcurrency));
+    }
+
     const source = new EventSource(`/api/run?${params.toString()}`);
     eventSourceRef.current = source;
 
@@ -493,6 +498,18 @@ export function Dashboard({ primaryModels, secondaryModels, scenarios, configErr
           {configError ? <p className="config-error">{configError}</p> : null}
         </div>
         <div className="hero-actions">
+          <label className="concurrency-control">
+            <span>Parallel</span>
+            <select
+              value={afmConcurrency}
+              onChange={(e) => setAfmConcurrency(Number(e.target.value))}
+              disabled={runnerStatus === "running"}
+            >
+              {[1, 2, 3, 4, 5, 6, 8, 10, 15].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
           <button
             className="primary-button"
             type="button"

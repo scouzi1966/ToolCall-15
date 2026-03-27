@@ -22,7 +22,7 @@ export type AssistantResponse = {
   toolCalls: ProviderToolCall[];
 };
 
-const MODEL_REQUEST_TIMEOUT_MS = 30_000;
+const MODEL_REQUEST_TIMEOUT_MS = 300_000;
 
 type ChatResponse = {
   choices?: Array<{
@@ -143,10 +143,9 @@ export async function callModel(model: ModelConfig, messages: ModelMessage[]): P
 
 export function createInitialMessages(userMessage: string): ModelMessage[] {
   return [
-    { role: "system", content: SYSTEM_PROMPT },
     {
       role: "system",
-      content: "Benchmark context: today is 2026-03-20 (Friday). Use this date for any relative time request."
+      content: `${SYSTEM_PROMPT}\n\nBenchmark context: today is 2026-03-20 (Friday). Use this date for any relative time request.`
     },
     { role: "user", content: userMessage }
   ];

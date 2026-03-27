@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const requestedIds = searchParams.get("models")?.split(",").filter(Boolean) ?? [];
   const requestedScenarioIds = searchParams.get("scenarios")?.split(",").filter(Boolean) ?? [];
+  const afmConcurrency = parseInt(searchParams.get("concurrency") ?? "", 10) || undefined;
   let models = [] as ReturnType<typeof getModelConfigs>;
   let configError: string | null = null;
 
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
       }
 
       try {
-        await runBenchmark(models, emit, requestedScenarioIds);
+        await runBenchmark(models, emit, requestedScenarioIds, afmConcurrency);
       } catch (error) {
         await emit({
           type: "run_error",

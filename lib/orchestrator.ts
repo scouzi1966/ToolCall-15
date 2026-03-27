@@ -244,7 +244,7 @@ async function runScenarioForModel(
   };
 }
 
-export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedScenarioIds?: string[]): Promise<void> {
+export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedScenarioIds?: string[], afmConcurrencyOverride?: number): Promise<void> {
   const scenarios = resolveScenarios(requestedScenarioIds);
   const resultsByModel: Record<string, ModelScenarioResult[]> = Object.fromEntries(
     models.map((model) => [model.id, [] as ModelScenarioResult[]])
@@ -257,6 +257,11 @@ export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedS
   });
 
   try {
+    const parallelModels = models.filter((m) => m.provider !== "afm");
+    const afmModels = models.filter((m) => m.provider === "afm");
+    const afmConcurrency = afmConcurrencyOverride ?? Math.max(1, parseInt(process.env.AFM_CONCURRENCY ?? "1", 10) || 1);
+
+    // Run non-AFM models: scenario-by-scenario, all models in parallel per scenario.
     for (const [index, scenario] of scenarios.entries()) {
       await emit({
         type: "scenario_started",
@@ -267,7 +272,7 @@ export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedS
       });
 
       const results = await Promise.all(
-        models.map(async (model) => {
+        parallelModels.map(async (model) => {
           const result = await runScenarioForModel(model, scenario, emit);
           return { modelId: model.id, result };
         })
@@ -283,10 +288,45 @@ export async function runBenchmark(models: ModelConfig[], emit: Emit, requestedS
         });
       }
 
-      await emit({
-        type: "scenario_finished",
-        scenarioId: scenario.id
-      });
+      if (afmModels.length === 0) {
+        await emit({ type: "scenario_finished", scenarioId: scenario.id });
+      }
+    }
+
+    // Run AFM models: all scenarios with bounded concurrency per model.
+    // This allows multiple scenarios to hit the same AFM server in parallel
+    // when AFM is running with --concurrent.
+    for (const model of afmModels) {
+      type ScenarioTask = { scenario: ScenarioDefinition; index: number };
+      const queue: ScenarioTask[] = scenarios.map((scenario, index) => ({ scenario, index }));
+
+      for (let i = 0; i < queue.length; i += afmConcurrency) {
+        const batch = queue.slice(i, i + afmConcurrency);
+        const batchResults = await Promise.all(
+          batch.map(async ({ scenario, index }) => {
+            await emit({
+              type: "scenario_started",
+              scenarioId: scenario.id,
+              title: scenario.title,
+              index: index + 1,
+              total: scenarios.length
+            });
+            const result = await runScenarioForModel(model, scenario, emit);
+            return { modelId: model.id, scenarioId: scenario.id, result };
+          })
+        );
+
+        for (const { modelId, scenarioId, result } of batchResults) {
+          resultsByModel[modelId].push(result);
+          await emit({
+            type: "scenario_result",
+            modelId,
+            scenarioId,
+            result
+          });
+          await emit({ type: "scenario_finished", scenarioId });
+        }
+      }
     }
 
     const scores = Object.fromEntries(
